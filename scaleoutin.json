@@ -1,0 +1,204 @@
+{
+  "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "appservicePlanName": {
+      "type": "string",
+      "metadata": {
+        "description": "The name of the App Service plan."
+      }
+    },
+	"appserviceName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of the App Service Environment"
+            }
+        },
+    "skuName": {
+      "type": "string",
+      "defaultValue": "S1",
+      "allowedValues": [
+        "F1",
+        "D1",
+        "B1",
+        "B2",
+        "B3",
+        "S1",
+        "S2",
+        "S3",
+        "P1",
+        "P2",
+        "P3",
+        "P4"
+      ],
+	  "metadata": {
+        "description": "Describes plan's pricing tier and capacity. Check details at https://azure.microsoft.com/en-us/pricing/details/app-service/"
+      }
+    },
+   "skuCapacity": {
+      "type": "int",
+      "defaultValue": 1,
+      "minValue": 1,
+      "metadata": {
+        "description": "Describes plan's instance count"
+      }
+    },
+    "minimumCapacity": {
+      "type": "Int",
+      "defaultValue": 1,
+      "metadata": {
+        "description": "The minimum capacity.  Autoscale engine will ensure the instance count is at least this value."
+      }
+    },
+    "maximumCapacity": {
+      "type": "Int",
+      "defaultValue": 3,
+      "metadata": {
+        "description": "The maximum capacity.  Autoscale engine will ensure the instance count is not greater than this value."
+      }
+    },
+    "defaultCapacity": {
+      "type": "Int",
+      "defaultValue": 1,
+      "metadata": {
+        "description": "The default capacity.  Autoscale engine will preventively set the instance count to be this value if it can not find any metric data."
+      }
+    },
+    "metricName": {
+      "type": "String",
+      "defaultValue": "CpuPercentage",
+      "metadata": {
+        "description": "The metric name."
+      }
+    },
+    "metricThresholdToScaleOut": {
+      "type": "Int",
+      "defaultValue":5,
+      "metadata": {
+        "description": "The metric upper threshold.  If the metric value is above this threshold then autoscale engine will initiate scale out action."
+      }
+    },
+    "metricThresholdToScaleIn": {
+      "type": "Int",
+      "defaultValue":5,
+      "metadata": {
+        "description": "The metric lower threshold.  If the metric value is below this threshold then autoscale engine will initiate scale in action."
+      }
+    },
+    "autoscaleEnabled": {
+      "type": "Bool",
+      "metadata": {
+        "description": "A boolean to indicate whether the autoscale policy is enabled or disabled."
+      }
+    },
+	"instancesToIncrease": {
+	 "type": "Int",
+	 "defaultValue":1,
+	  "metadata": {
+        "description": "Specifies the number to instances to create as a part of Scale out"
+	   }
+      },
+	 "instancesToDecrease" : {
+	 "type": "Int",
+	 "defaultValue":1,
+	  "metadata": {
+        "description": "Specifies the number to instances to decrease as a part of Scale in"
+      }
+	 } 
+  },
+  "variables": {
+		"settingName": "[concat(toLower(parameters('appservicePlanName')), '-setting')]",
+		"targetResourceId": "[resourceId('Microsoft.Web/serverfarms/', parameters('appservicePlanName'))]"
+		
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2015-08-01",
+      "name": "[parameters('appservicePlanName')]",
+      "location": "[resourceGroup().location]",
+	  "sku": {
+        "name": "[parameters('skuName')]",
+        "capacity": "[parameters('skuCapacity')]"
+      }
+    },
+    {
+        "apiVersion": "2015-08-01",
+        "type": "Microsoft.Web/sites",
+        "name": "[parameters('appserviceName')]",
+		"dependsOn": [
+        "[resourceId('Microsoft.Web/serverfarms', parameters('appservicePlanName'))]"
+         ],
+        "location": "[resourceGroup().location]",
+		"properties": {
+        "name":"[parameters('appserviceName')]" ,
+        "location": "[resourceGroup().location]",
+		"serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('appservicePlanName'))]"
+       }
+      },
+    {
+      "type": "Microsoft.Insights/autoscalesettings",
+      "name": "[variables('settingName')]",
+	  "dependsOn": [
+        "[resourceId('Microsoft.Web/serverfarms', parameters('appservicePlanName'))]"
+         ],
+      "apiVersion": "2014-04-01",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "profiles": [
+          {
+            "name": "DefaultAutoscaleProfile",
+            "capacity": {
+              "minimum": "[parameters('minimumCapacity')]",
+              "maximum": "[parameters('maximumCapacity')]",
+              "default": "[parameters('defaultCapacity')]"
+            },
+            "rules": [
+              {
+                "metricTrigger": {
+                  "metricName": "[parameters('metricName')]",
+                  "metricResourceUri": "[variables('targetResourceId')]",
+				  "timeGrain": "PT5M",
+				  "timeAggregation": "Average",
+				  "statistic": "Average",
+                  "timeWindow": "PT5M",
+                  "operator": "GreaterThan",
+                  "threshold": "[parameters('metricThresholdToScaleOut')]"
+                },
+                "scaleAction": {
+                  "direction": "Increase",
+                  "type": "PercentChangeCount",
+                  "value": "[parameters('instancesToIncrease')]",
+                  "cooldown": "PT5M"
+                }
+              },
+              {
+                "metricTrigger": {
+                  "metricName": "[parameters('metricName')]",
+                  "metricNamespace": "",
+                  "metricResourceUri": "[variables('targetResourceId')]",
+				  "timeGrain": "PT5M",
+                  "statistic": "Average",
+                  "timeWindow": "PT5M",
+                  "timeAggregation": "Average",
+                  "operator": "LessThan",
+                  "threshold": "[parameters('metricThresholdToScaleIn')]"
+                },
+                "scaleAction": {
+                  "direction": "Decrease",
+                  "type": "PercentChangeCount",
+                  "value": "[parameters('instancesToDecrease')]",
+                  "cooldown": "PT5M"
+                }
+              }
+            ]
+          }
+        ],
+        "enabled": "[parameters('autoscaleEnabled')]",
+        "targetResourceUri": "[variables('targetResourceId')]"
+      }
+    }
+  ],
+  "outputs": {
+  }
+}
